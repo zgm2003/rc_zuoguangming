@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
