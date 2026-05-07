@@ -50,6 +50,31 @@ python -m src.app.worker_runner
 
 The runner initializes the database, periodically recovers stale `processing` jobs, then calls `NotificationWorker.run_once()` in a loop. `Ctrl+C` sets a stop event and exits cleanly after the current iteration.
 
+## Production deployment
+
+The current deployment uses BT Panel with Nginx in front of two Python processes:
+
+```text
+https://notify.zgm2003.cn
+        |
+        v
+Nginx reverse proxy
+        |
+        v
+127.0.0.1:8000
+        |
+        v
+FastAPI API process
+```
+
+The worker is a separate long-running process on the same host:
+
+```bash
+python -m src.app.worker_runner --poll-interval 1 --batch-size 10 --timeout 5 --visibility-timeout 300
+```
+
+Only one worker process is used in version 1 because the SQLite claim model is not designed for concurrent workers. Scaling to multiple workers should first move the storage layer to Postgres with row-level locking.
+
 ## Idempotency
 
 The system can include `Idempotency-Key` when dispatching if the caller provided `idempotency_key` and did not already set that header. This does not magically guarantee idempotency. It gives downstream systems a stable business event key to use.

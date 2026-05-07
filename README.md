@@ -222,7 +222,83 @@ http://127.0.0.1:8000/docs
 python -m pytest -q
 ```
 
-## 9. 代码结构
+## 9. 线上部署（宝塔）
+
+当前线上入口：
+
+```text
+https://notify.zgm2003.cn
+```
+
+健康检查：
+
+```text
+https://notify.zgm2003.cn/health
+```
+
+已验证环境：
+
+```text
+Python 3.12.13
+15 passed
+https://notify.zgm2003.cn/health -> {"status":"ok"}
+```
+
+服务器项目目录：
+
+```bash
+/www/wwwroot/rc_zuoguangming
+```
+
+线上运行时使用项目内虚拟环境：
+
+```bash
+cd /www/wwwroot/rc_zuoguangming
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pytest -q
+```
+
+宝塔中使用两个常驻进程：
+
+### API 进程
+
+```text
+名称：notify-api
+运行目录：/www/wwwroot/rc_zuoguangming
+进程数量：1
+```
+
+启动命令：
+
+```bash
+/www/wwwroot/rc_zuoguangming/.venv/bin/python -m uvicorn src.app.main:app --host 127.0.0.1 --port 8000
+```
+
+### Worker 进程
+
+```text
+名称：notify-worker
+运行目录：/www/wwwroot/rc_zuoguangming
+进程数量：1
+```
+
+启动命令：
+
+```bash
+/www/wwwroot/rc_zuoguangming/.venv/bin/python -m src.app.worker_runner --poll-interval 1 --batch-size 10 --timeout 5 --visibility-timeout 300
+```
+
+Nginx 反向代理：
+
+```text
+notify.zgm2003.cn -> http://127.0.0.1:8000
+```
+
+HTTP 会跳转到 HTTPS，HTTPS 请求由 Nginx 转发到本地 FastAPI 服务。
+
+## 10. 代码结构
 
 ```text
 src/app/
@@ -242,7 +318,7 @@ tests/
   test_notification_flow.py
 ```
 
-## 10. 为什么第一版不用 MQ
+## 11. 为什么第一版不用 MQ
 
 Kafka/RabbitMQ 当然能做，但第一版不是“不知道 MQ”，而是**没有证据证明必须引入 MQ**。
 
@@ -264,13 +340,13 @@ Kafka/RabbitMQ 当然能做，但第一版不是“不知道 MQ”，而是**没
 5. 增加 metrics、tracing、alerting
 6. 增加管理后台和人工 replay
 
-## 11. 面试讲法
+## 12. 面试讲法
 
 你可以这样讲：
 
 > 我把这个问题拆成两个阶段：接受通知意图和实际外部投递。业务系统不关心供应商返回值，所以同步转发是错误边界。我的服务先持久化任务并返回 202，worker 后台投递。可靠性语义选择至少一次，因为 HTTP timeout 无法判断对方是否已经处理。为了管理重复投递，我支持 idempotency_key。第一版不用 Kafka，不是因为 Kafka 不好，而是数据库队列足够验证核心可靠性，等并发和吞吐有证据后再演进。
 
-## 12. 当前验证
+## 13. 当前验证
 
 核心行为由自动化测试覆盖：
 
