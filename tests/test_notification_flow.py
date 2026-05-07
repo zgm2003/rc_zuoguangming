@@ -249,3 +249,43 @@ def test_worker_runner_loops_until_stop_event_is_set():
     assert iterations == 3
     assert worker.calls == 3
     assert sleep_calls == [0.25, 0.25, 0.25]
+
+
+class FailsOnceWorker:
+    def __init__(self):
+        self.calls = 0
+
+    def run_once(self):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("temporary database hiccup")
+        return 2
+
+
+def test_worker_runner_continues_after_iteration_error():
+    worker = FailsOnceWorker()
+    sleep_calls = []
+
+    class StopAfterTwoSleeps:
+        def __init__(self):
+            self.count = 0
+
+        def is_set(self):
+            return self.count >= 2
+
+    stop_event = StopAfterTwoSleeps()
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        stop_event.count += 1
+
+    iterations = run_worker_loop(
+        worker,
+        poll_interval_seconds=0.25,
+        stop_event=stop_event,
+        sleep=fake_sleep,
+    )
+
+    assert iterations == 2
+    assert worker.calls == 2
+    assert sleep_calls == [0.25, 0.25]

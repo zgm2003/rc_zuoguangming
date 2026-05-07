@@ -55,6 +55,8 @@ SQLite uses coarse write locking and has no row-level `SKIP LOCKED` claim primit
 
 Postgres supports row-level locking. The repository uses `FOR UPDATE SKIP LOCKED` for Postgres claim statements. That means two worker processes can ask for due jobs at the same time and receive different unlocked rows rather than duplicating the same notification.
 
+This does not mean worker count can grow without limit. Each worker still holds database locks while it marks claimed rows as `processing`, and overall throughput is constrained by batch size, transaction length, vendor HTTP timeout, and database write capacity. The safe scaling rule is to keep claim transactions short, tune `--batch-size` deliberately, and watch queue age before adding more workers.
+
 ## Why this still does not claim infinite scale
 
 This is a server-ready concurrency step, not a global notification platform. Remaining bottlenecks include:

@@ -73,7 +73,7 @@ The worker is a separate long-running process on the same host:
 python -m src.app.worker_runner --poll-interval 1 --batch-size 10 --timeout 5 --visibility-timeout 300
 ```
 
-With SQLite, use one worker process. With Postgres, multiple workers can safely claim due jobs because the repository adds `FOR UPDATE SKIP LOCKED` to the claim statement.
+With SQLite, use one worker process. With Postgres, multiple workers can safely claim due jobs because the repository adds `FOR UPDATE SKIP LOCKED` to the claim statement. This is a concurrency boundary, not an unlimited scale claim: worker count still has to be constrained by batch size, transaction duration, vendor timeout, and database write capacity.
 
 ## Idempotency
 

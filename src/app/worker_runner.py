@@ -32,7 +32,11 @@ def run_worker_loop(
 ) -> int:
     iterations = 0
     while not stop_event.is_set():
-        processed = worker.run_once()
+        try:
+            processed = worker.run_once()
+        except Exception:
+            logger.exception("worker iteration failed")
+            processed = 0
         iterations += 1
         logger.info("worker iteration=%s processed=%s", iterations, processed)
         sleep(poll_interval_seconds)
