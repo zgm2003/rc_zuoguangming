@@ -60,6 +60,33 @@ External Vendor API
 - 不默认引入 Kafka/RabbitMQ。第一版没有证据需要外部队列。
 - 不做多租户权限体系。真实环境可由网关或内部认证层补上。
 
+
+## 3.1 架构边界答辩版
+
+这个系统不是“大而全集成平台”，它的边界是**可靠 HTTP 通知投递**。
+
+它负责：
+
+- 接收通知意图；
+- 持久化任务；
+- 异步投递 HTTP；
+- 失败重试；
+- 记录 attempt；
+- 暴露状态查询；
+- 恢复卡在 `processing` 的任务。
+
+它不负责：
+
+- 产生业务事件；
+- 理解 CRM、广告、库存等供应商业务语义；
+- 单方面保证 exactly-once；
+- 替接收方实现幂等；
+- 一开始就拥有完整监控平台或 MQ 平台。
+
+这不是偷懒，是边界设计。系统如果同时负责业务语义、供应商适配、通知投递、监控告警和消息平台，会变成一个无法在第一版讲清楚的泥球。
+
+详细边界见 `docs/system-boundary.md`。
+
 ## 4. 投递语义
 
 本服务选择：**at-least-once delivery，至少一次投递**。
@@ -316,6 +343,9 @@ src/app/
 tests/
   test_retry_policy.py
   test_notification_flow.py
+  test_database_config.py
+  test_postgres_claim.py
+  test_production_config.py
 ```
 
 ## 11. 为什么第一版不用 MQ
@@ -339,6 +369,31 @@ Kafka/RabbitMQ 当然能做，但第一版不是“不知道 MQ”，而是**没
 4. 引入 RabbitMQ/Kafka
 5. 增加 metrics、tracing、alerting
 6. 增加管理后台和人工 replay
+
+
+## 11.1 服务器并发版
+
+当前代码支持通过 `DATABASE_URL` 切换数据库：
+
+```bash
+# 本地默认
+DATABASE_URL=sqlite:///./notification_service.db
+
+# 服务器并发版
+DATABASE_URL=postgresql+psycopg://notify_user:password@127.0.0.1:5432/notify_db
+```
+
+SQLite 适合本地运行和单 worker 演示；Postgres 适合服务器上多 API worker、多投递 worker。
+
+Postgres 下任务 claim 使用行级锁：
+
+```sql
+FOR UPDATE SKIP LOCKED
+```
+
+这个设计避免多个 worker 抢到同一条 due notification。也就是说，我们没有把“高并发”吹成口号，而是把并发边界落在数据库行级锁上。
+
+详细生产架构见 `docs/production-architecture.md`。
 
 ## 12. 当前验证
 

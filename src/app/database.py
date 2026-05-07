@@ -14,10 +14,18 @@ def is_sqlite_url(database_url: str) -> bool:
     return database_url.startswith("sqlite")
 
 
+def engine_kwargs_for_url(url) -> dict:
+    """Return driver-specific kwargs only; kept separate for focused tests."""
+    if url.get_backend_name() == "sqlite":
+        return {"connect_args": {"check_same_thread": False}}
+    return {}
+
+
 def build_engine_kwargs(database_url: str) -> dict:
+    from sqlalchemy.engine.url import make_url
+
     kwargs: dict = {"future": True}
-    if is_sqlite_url(database_url):
-        kwargs["connect_args"] = {"check_same_thread": False}
+    kwargs.update(engine_kwargs_for_url(make_url(database_url)))
     return kwargs
 
 

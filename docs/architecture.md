@@ -31,7 +31,7 @@ There is no separate `dead` state. In version 1, `failed` means either permanent
 
 The repository claims due jobs by selecting `pending`/`retrying` rows whose `next_attempt_at <= now`, then moves them to `processing` and records `processing_started_at`.
 
-SQLite is not ideal for high-concurrency claiming. That is acceptable for version 1. If concurrency grows, move to Postgres and use `SELECT ... FOR UPDATE SKIP LOCKED`, or move the queue to RabbitMQ/Kafka.
+SQLite is not ideal for high-concurrency claiming. The production concurrency path uses Postgres and `SELECT ... FOR UPDATE SKIP LOCKED`; MQ remains a later option when queue depth or fanout justifies it.
 
 ## Crash recovery
 
@@ -73,7 +73,7 @@ The worker is a separate long-running process on the same host:
 python -m src.app.worker_runner --poll-interval 1 --batch-size 10 --timeout 5 --visibility-timeout 300
 ```
 
-Only one worker process is used in version 1 because the SQLite claim model is not designed for concurrent workers. Scaling to multiple workers should first move the storage layer to Postgres with row-level locking.
+With SQLite, use one worker process. With Postgres, multiple workers can safely claim due jobs because the repository adds `FOR UPDATE SKIP LOCKED` to the claim statement.
 
 ## Idempotency
 
