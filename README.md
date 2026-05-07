@@ -325,6 +325,12 @@ notify.zgm2003.cn -> http://127.0.0.1:8000
 
 HTTP 会跳转到 HTTPS，HTTPS 请求由 Nginx 转发到本地 FastAPI 服务。
 
+宝塔进程管理器的完整可复制启动命令见：
+
+```text
+docs/baota-process-manager.md
+```
+
 
 ## 9.1 Docker / Postgres 并发验证
 
