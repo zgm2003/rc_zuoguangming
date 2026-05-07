@@ -81,3 +81,33 @@ Introduce RabbitMQ/Kafka when at least one of these is true:
 - multiple services need to consume the same event stream.
 
 Until then, Postgres-backed durable queueing is simpler and easier to reason about.
+
+## Docker validation path
+
+The repository includes `Dockerfile` and `docker-compose.yml` for a Postgres-backed local production shape:
+
+```bash
+docker compose up --build
+```
+
+The compose stack contains:
+
+- `postgres`: Postgres 16 with a healthcheck;
+- `api`: FastAPI process using `DATABASE_URL=postgresql+psycopg://...`;
+- `worker`: notification worker using the same Postgres database.
+
+For focused claim validation, start only Postgres and run the script:
+
+```bash
+docker compose up -d postgres
+# PowerShell
+$env:DATABASE_URL="postgresql+psycopg://notify_user:notify_password@127.0.0.1:5432/notify_db"
+python scripts/postgres_concurrency_check.py
+
+# Bash
+DATABASE_URL=postgresql+psycopg://notify_user:notify_password@127.0.0.1:5432/notify_db \
+  python scripts/postgres_concurrency_check.py
+```
+
+The success criterion is `duplicate_claims=0`. That verifies the `FOR UPDATE SKIP LOCKED` claim path under concurrent claimers.
+

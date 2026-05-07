@@ -325,6 +325,42 @@ notify.zgm2003.cn -> http://127.0.0.1:8000
 
 HTTP 会跳转到 HTTPS，HTTPS 请求由 Nginx 转发到本地 FastAPI 服务。
 
+
+## 9.1 Docker / Postgres 并发验证
+
+如果要验证服务器并发路径，不要只跑 SQLite。使用 Docker Compose 启动 Postgres、API 和 worker：
+
+```bash
+docker compose up --build
+```
+
+API 文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+只启动 Postgres 用于并发 claim 检查：
+
+```bash
+docker compose up -d postgres
+```
+
+然后在本机运行：
+
+```bash
+$env:DATABASE_URL="postgresql+psycopg://notify_user:notify_password@127.0.0.1:5432/notify_db"
+python scripts/postgres_concurrency_check.py
+```
+
+成功输出应该包含：
+
+```text
+duplicate_claims=0
+```
+
+这验证的是 Postgres 多 worker claim 不重复，不是宣称系统已经完成完整生产压测。完整压测还需要对 API 创建吞吐、worker 投递吞吐、供应商限流和失败率做单独测试。
+
 ## 10. 代码结构
 
 ```text
@@ -340,12 +376,16 @@ src/app/
   worker_runner.py # 常驻 worker 进程入口
   main.py          # FastAPI routes
 
+scripts/
+  postgres_concurrency_check.py # Postgres 多 worker claim 验证
+
 tests/
   test_retry_policy.py
   test_notification_flow.py
   test_database_config.py
   test_postgres_claim.py
   test_production_config.py
+  test_docker_assets.py
 ```
 
 ## 11. 为什么第一版不用 MQ
