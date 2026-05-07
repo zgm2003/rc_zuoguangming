@@ -39,6 +39,17 @@ A worker can crash after claiming a row. The recovery method moves jobs stuck in
 
 This is the database-backed equivalent of a queue visibility timeout.
 
+## Worker process
+
+Run the API and worker as two separate processes:
+
+```bash
+python -m uvicorn src.app.main:app --reload
+python -m src.app.worker_runner
+```
+
+The runner initializes the database, periodically recovers stale `processing` jobs, then calls `NotificationWorker.run_once()` in a loop. `Ctrl+C` sets a stop event and exits cleanly after the current iteration.
+
 ## Idempotency
 
 The system can include `Idempotency-Key` when dispatching if the caller provided `idempotency_key` and did not already set that header. This does not magically guarantee idempotency. It gives downstream systems a stable business event key to use.

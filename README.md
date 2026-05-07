@@ -198,6 +198,18 @@ python -m pip install -r requirements.txt
 python -m uvicorn src.app.main:app --reload
 ```
 
+另开一个终端启动常驻 worker：
+
+```bash
+python -m src.app.worker_runner
+```
+
+worker 支持参数覆盖：
+
+```bash
+python -m src.app.worker_runner --poll-interval 1 --batch-size 10 --timeout 5 --visibility-timeout 300
+```
+
 访问：
 
 ```text
@@ -222,6 +234,7 @@ src/app/
   retry_policy.py  # 纯函数重试策略
   dispatcher.py    # HTTP 投递
   worker.py        # worker 编排
+  worker_runner.py # 常驻 worker 进程入口
   main.py          # FastAPI routes
 
 tests/
@@ -264,4 +277,5 @@ Kafka/RabbitMQ 当然能做，但第一版不是“不知道 MQ”，而是**没
 - retry policy：成功、瞬时失败、永久失败、次数耗尽、退避上限
 - repository：创建、查询、claim、attempt 记录、stale processing 恢复
 - worker：成功投递、瞬时失败重试、永久失败停止
+- worker runner：常驻循环、poll interval 和停止条件
 - API：创建通知并查询状态

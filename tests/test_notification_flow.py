@@ -7,6 +7,7 @@ from src.app.main import create_app
 from src.app.models import STATUS_FAILED, STATUS_PENDING, STATUS_PROCESSING, STATUS_RETRYING
 from src.app.repository import NotificationRepository
 from src.app.worker import NotificationWorker
+from src.app.worker_runner import run_worker_loop
 
 
 def test_repository_creates_and_fetches_notification(session):
@@ -210,3 +211,41 @@ def test_api_accepts_notification_and_returns_status(session):
     assert payload["status"] == STATUS_PENDING
     assert payload["target_url"] == "https://vendor.example.test/webhook"
     assert payload["attempts"] == []
+
+
+class FakeWorker:
+    def __init__(self):
+        self.calls = 0
+
+    def run_once(self):
+        self.calls += 1
+        return 0
+
+
+def test_worker_runner_loops_until_stop_event_is_set():
+    worker = FakeWorker()
+    sleep_calls = []
+
+    class StopAfterThreeSleeps:
+        def __init__(self):
+            self.count = 0
+
+        def is_set(self):
+            return self.count >= 3
+
+    stop_event = StopAfterThreeSleeps()
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        stop_event.count += 1
+
+    iterations = run_worker_loop(
+        worker,
+        poll_interval_seconds=0.25,
+        stop_event=stop_event,
+        sleep=fake_sleep,
+    )
+
+    assert iterations == 3
+    assert worker.calls == 3
+    assert sleep_calls == [0.25, 0.25, 0.25]
