@@ -22,6 +22,19 @@ from src.app.models import (
 CLAIMABLE_STATUSES = {STATUS_PENDING, STATUS_RETRYING}
 
 
+def build_claim_statement(*, limit: int, use_skip_locked: bool = False) -> Select[tuple[Notification]]:
+    stmt: Select[tuple[Notification]] = (
+        select(Notification)
+        .where(Notification.status.in_(CLAIMABLE_STATUSES))
+        .where(Notification.next_attempt_at <= utc_now())
+        .order_by(Notification.next_attempt_at.asc(), Notification.created_at.asc())
+        .limit(limit)
+    )
+    if use_skip_locked:
+        stmt = stmt.with_for_update(skip_locked=True)
+    return stmt
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -84,13 +97,8 @@ class NotificationRepository:
 
     def claim_due_notifications(self, *, limit: int, now: datetime | None = None) -> list[Notification]:
         now = _normalize_datetime(now or utc_now())
-        stmt: Select[tuple[Notification]] = (
-            select(Notification)
-            .where(Notification.status.in_(CLAIMABLE_STATUSES))
-            .where(Notification.next_attempt_at <= now)
-            .order_by(Notification.next_attempt_at.asc(), Notification.created_at.asc())
-            .limit(limit)
-        )
+        use_skip_locked = self.session.bind is not None and self.session.bind.dialect.name == "postgresql"
+        stmt = self._build_claim_statement(limit=limit, use_skip_locked=use_skip_locked, now=now)
         items = list(self.session.execute(stmt).scalars().all())
         for item in items:
             item.status = STATUS_PROCESSING
@@ -100,6 +108,25 @@ class NotificationRepository:
         for item in items:
             self.session.refresh(item)
         return items
+
+    def _build_claim_statement(
+        self,
+        *,
+        limit: int,
+        use_skip_locked: bool,
+        now: datetime | None = None,
+    ) -> Select[tuple[Notification]]:
+        now = _normalize_datetime(now or utc_now())
+        stmt: Select[tuple[Notification]] = (
+            select(Notification)
+            .where(Notification.status.in_(CLAIMABLE_STATUSES))
+            .where(Notification.next_attempt_at <= now)
+            .order_by(Notification.next_attempt_at.asc(), Notification.created_at.asc())
+            .limit(limit)
+        )
+        if use_skip_locked:
+            return stmt.with_for_update(skip_locked=True)
+        return stmt
 
     def record_attempt(
         self,

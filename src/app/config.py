@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -14,5 +15,11 @@ class Settings:
     retry_max_delay_seconds: int = 3600
     default_max_attempts: int = 5
 
+    @classmethod
+    def from_env(cls) -> "Settings":
+        return cls(
+            database_url=os.getenv("DATABASE_URL", cls.database_url),
+        )
 
-settings = Settings()
+
+settings = Settings.from_env()

@@ -10,7 +10,22 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.database_url, connect_args={"check_same_thread": False}, future=True)
+def is_sqlite_url(database_url: str) -> bool:
+    return database_url.startswith("sqlite")
+
+
+def build_engine_kwargs(database_url: str) -> dict:
+    kwargs: dict = {"future": True}
+    if is_sqlite_url(database_url):
+        kwargs["connect_args"] = {"check_same_thread": False}
+    return kwargs
+
+
+def create_app_engine(database_url: str):
+    return create_engine(database_url, **build_engine_kwargs(database_url))
+
+
+engine = create_app_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
