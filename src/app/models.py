@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.database import Base
@@ -41,6 +41,7 @@ class UTCDateTime(TypeDecorator):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_notifications_idempotency_key"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     target_url: Mapped[str] = mapped_column(Text, nullable=False)

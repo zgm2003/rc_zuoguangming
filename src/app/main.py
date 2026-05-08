@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from src.app.database import get_session, init_db
 from src.app.repository import NotificationRepository
 from src.app.schemas import NotificationAccepted, NotificationCreate, NotificationRead
+from src.app.redaction import redact_sensitive_data
 
 SessionFactory = Callable[[], Session]
 
@@ -67,8 +68,8 @@ def _to_read_model(item) -> NotificationRead:
         id=item.id,
         target_url=item.target_url,
         method=item.method,
-        headers=item.headers,
-        body=item.body,
+        headers=redact_sensitive_data(item.headers),
+        body=redact_sensitive_data(item.body),
         idempotency_key=item.idempotency_key,
         status=item.status,
         attempt_count=item.attempt_count,

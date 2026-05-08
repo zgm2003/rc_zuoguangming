@@ -63,3 +63,21 @@ Decision: RabbitMQ/Kafka remains a later evolution, not part of this upgrade.
 Why: The next concrete server problem is safe concurrent claiming. Postgres solves that with less operational complexity than a broker.
 
 Consequence: MQ can be introduced later when queue depth, fanout, or operational isolation proves the need.
+
+## ADR-009: Idempotency key deduplicates notification creation
+
+Decision: When a caller supplies `idempotency_key`, duplicate create requests return the existing notification instead of creating a second row.
+
+Why: Internal callers may retry `POST /notifications` after client-side timeout. Without inbound deduplication, the notification service itself can create duplicate delivery jobs before the worker even starts.
+
+Consequence: The key is global in version 1 because the system has no tenant boundary. If tenants are added later, the uniqueness boundary should become `(tenant_id, idempotency_key)`.
+
+Implementation note: startup tries to create a named unique index for this key. If legacy data already contains duplicate keys, startup logs a warning and skips the index instead of crashing; the duplicate rows must be cleaned by a later migration or repair step before the guardrail can be enforced again.
+
+## ADR-010: Block obvious internal target URLs at input validation
+
+Decision: Reject loopback, private, link-local, multicast, unspecified, reserved, localhost, and cloud metadata-style IP targets.
+
+Why: A reliable HTTP notifier is otherwise one bad request away from becoming an SSRF/open relay primitive.
+
+Consequence: DNS rebinding and egress policy still require infrastructure controls. This validation is an application guardrail, not a full network security boundary.

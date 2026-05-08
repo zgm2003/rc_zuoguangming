@@ -36,16 +36,8 @@ class NotificationWorker:
         return len(jobs)
 
     def _process(self, notification: Notification, *, now: datetime) -> None:
-        attempt_no = self.repository.increment_attempt_count(notification.id, now=now)
+        attempt_no = notification.attempt_count + 1
         result = self.dispatcher.dispatch(notification)
-        self.repository.record_attempt(
-            notification.id,
-            attempt_no=attempt_no,
-            status_code=result.status_code,
-            error=result.error,
-            duration_ms=result.duration_ms,
-            now=now,
-        )
         outcome = classify_delivery(
             status_code=result.status_code,
             error=result.error,
@@ -54,21 +46,14 @@ class NotificationWorker:
             now=now,
             policy=self.retry_policy,
         )
-        if outcome.status == "succeeded":
-            self.repository.mark_succeeded(notification.id, status_code=result.status_code, now=now)
-            return
-        if outcome.should_retry and outcome.next_attempt_at is not None:
-            self.repository.schedule_retry(
-                notification.id,
-                next_attempt_at=outcome.next_attempt_at,
-                status_code=result.status_code,
-                error=result.error or outcome.reason,
-                now=now,
-            )
-            return
-        self.repository.mark_failed(
+        self.repository.finish_attempt(
             notification.id,
+            attempt_no=attempt_no,
             status_code=result.status_code,
-            error=result.error or outcome.reason,
+            error=result.error,
+            last_error=None if outcome.status == "succeeded" else result.error or outcome.reason,
+            duration_ms=result.duration_ms,
+            final_status=outcome.status,
+            next_attempt_at=outcome.next_attempt_at,
             now=now,
         )

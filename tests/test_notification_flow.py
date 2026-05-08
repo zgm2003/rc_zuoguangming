@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from src.app.dispatcher import DispatchResult
 from src.app.main import create_app
-from src.app.models import STATUS_FAILED, STATUS_PENDING, STATUS_PROCESSING, STATUS_RETRYING
+from src.app.models import Notification, STATUS_FAILED, STATUS_PENDING, STATUS_PROCESSING, STATUS_RETRYING
 from src.app.repository import NotificationRepository
 from src.app.worker import NotificationWorker
 from src.app.worker_runner import run_worker_loop
@@ -30,6 +32,33 @@ def test_repository_creates_and_fetches_notification(session):
     assert fetched.headers == {"Authorization": "Bearer token"}
     assert fetched.body == {"event": "user_registered"}
     assert fetched.idempotency_key == "user_registered:u_1"
+
+
+def test_repository_reuses_existing_notification_for_same_idempotency_key(session):
+    repo = NotificationRepository(session)
+
+    first = repo.create_notification(
+        target_url="https://vendor.example.test/webhook",
+        method="POST",
+        headers={"Authorization": "Bearer first"},
+        body={"event": "user_registered"},
+        idempotency_key="user_registered:u_1",
+        max_attempts=5,
+    )
+    second = repo.create_notification(
+        target_url="https://vendor.example.test/duplicate",
+        method="POST",
+        headers={"Authorization": "Bearer second"},
+        body={"event": "duplicate"},
+        idempotency_key="user_registered:u_1",
+        max_attempts=5,
+    )
+
+    row_count = session.execute(select(func.count(Notification.id))).scalar_one()
+
+    assert second.id == first.id
+    assert second.target_url == "https://vendor.example.test/webhook"
+    assert row_count == 1
 
 
 def test_repository_claims_due_jobs_and_marks_processing(session):
@@ -107,6 +136,15 @@ class FakeDispatcher:
         return self.results.pop(0)
 
 
+class RaisingDispatcher:
+    def __init__(self):
+        self.calls = []
+
+    def dispatch(self, notification):
+        self.calls.append(notification.id)
+        raise RuntimeError("dispatcher crashed before HTTP result")
+
+
 def test_worker_marks_successful_delivery_as_succeeded(session):
     repo = NotificationRepository(session)
     now = datetime(2026, 5, 7, 10, 0, 0, tzinfo=timezone.utc)
@@ -132,6 +170,7 @@ def test_worker_marks_successful_delivery_as_succeeded(session):
     assert fetched.attempt_count == 1
     assert fetched.last_status_code == 204
     assert len(fetched.attempts) == 1
+    assert fetched.attempts[0].error is None
     assert fetched.attempts[0].duration_ms == 31
 
 
@@ -160,6 +199,7 @@ def test_worker_schedules_retry_for_transient_failure(session):
     assert fetched.next_attempt_at == datetime(2026, 5, 7, 10, 1, 0, tzinfo=timezone.utc)
     assert fetched.last_status_code == 503
     assert len(fetched.attempts) == 1
+    assert fetched.attempts[0].error is None
 
 
 def test_worker_fails_permanent_4xx_without_retry(session):
@@ -188,6 +228,31 @@ def test_worker_fails_permanent_4xx_without_retry(session):
     assert len(fetched.attempts) == 1
 
 
+def test_worker_does_not_consume_attempt_when_dispatcher_crashes_before_result(session):
+    repo = NotificationRepository(session)
+    now = datetime(2026, 5, 7, 10, 0, 0, tzinfo=timezone.utc)
+    job = repo.create_notification(
+        target_url="https://vendor.example.test/webhook",
+        method="POST",
+        headers={},
+        body={},
+        idempotency_key=None,
+        max_attempts=5,
+        now=now - timedelta(minutes=1),
+    )
+    dispatcher = RaisingDispatcher()
+    worker = NotificationWorker(repo, dispatcher=dispatcher)
+
+    with pytest.raises(RuntimeError, match="dispatcher crashed"):
+        worker.run_once(now=now)
+
+    fetched = repo.get_notification(job.id)
+    assert dispatcher.calls == [job.id]
+    assert fetched.status == STATUS_PROCESSING
+    assert fetched.attempt_count == 0
+    assert fetched.attempts == []
+
+
 def test_api_accepts_notification_and_returns_status(session):
     app = create_app(session_factory=lambda: session)
     client = TestClient(app)
@@ -211,6 +276,49 @@ def test_api_accepts_notification_and_returns_status(session):
     assert payload["status"] == STATUS_PENDING
     assert payload["target_url"] == "https://vendor.example.test/webhook"
     assert payload["attempts"] == []
+
+
+def test_api_redacts_sensitive_headers_and_body_in_status_response(session):
+    app = create_app(session_factory=lambda: session)
+    client = TestClient(app)
+
+    response = client.post(
+        "/notifications",
+        json={
+            "target_url": "https://vendor.example.test/webhook",
+            "method": "POST",
+            "headers": {
+                "Authorization": "Bearer token",
+                "Cookie": "session=secret",
+                "X-API-Key": "api-secret",
+                "X-Trace-Id": "trace-1",
+            },
+            "body": {
+                "event": "user_registered",
+                "token": "body-token",
+                "nested": {
+                    "password": "body-password",
+                    "secret": "body-secret",
+                    "safe": "visible",
+                },
+            },
+            "idempotency_key": "user_registered:redacted",
+        },
+    )
+
+    notification_id = response.json()["id"]
+    detail = client.get(f"/notifications/{notification_id}")
+    payload = detail.json()
+
+    assert payload["headers"]["Authorization"] == "<redacted>"
+    assert payload["headers"]["Cookie"] == "<redacted>"
+    assert payload["headers"]["X-API-Key"] == "<redacted>"
+    assert payload["headers"]["X-Trace-Id"] == "trace-1"
+    assert payload["body"]["event"] == "user_registered"
+    assert payload["body"]["token"] == "<redacted>"
+    assert payload["body"]["nested"]["password"] == "<redacted>"
+    assert payload["body"]["nested"]["secret"] == "<redacted>"
+    assert payload["body"]["nested"]["safe"] == "visible"
 
 
 class FakeWorker:

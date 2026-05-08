@@ -47,6 +47,8 @@ Creates a notification job. The service persists the job and returns `202 Accept
 
 Returns current job state and attempt history.
 
+Sensitive response fields are redacted in this read API. The dispatch payload remains stored for delivery, but fields such as `Authorization`, `Cookie`, `X-API-Key`, `token`, `password`, and `secret` are returned as `<redacted>`.
+
 ### Response
 
 ```json
@@ -55,7 +57,7 @@ Returns current job state and attempt history.
   "target_url": "https://vendor.example.com/webhook",
   "method": "POST",
   "headers": {
-    "Authorization": "Bearer token"
+    "Authorization": "<redacted>"
   },
   "body": {
     "event": "user_registered"

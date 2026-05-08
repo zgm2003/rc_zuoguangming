@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from src.app.config import settings
 from src.app.models import ALLOWED_METHODS
+from src.app.target_url_policy import validate_target_url_allowed
 
 
 class NotificationCreate(BaseModel):
@@ -31,6 +32,12 @@ class NotificationCreate(BaseModel):
     def validate_max_attempts(cls, value: int) -> int:
         if value < 1 or value > 20:
             raise ValueError("max_attempts must be between 1 and 20")
+        return value
+
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, value: HttpUrl) -> HttpUrl:
+        validate_target_url_allowed(str(value))
         return value
 
 

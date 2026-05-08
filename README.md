@@ -49,6 +49,7 @@ External Vendor API
 - 失败重试，支持指数退避和最大重试次数。
 - 记录每次投递 attempt，便于排障。
 - worker 崩溃后恢复卡在 `processing` 的任务。
+- 拒绝明显的内网、loopback、link-local 和云 metadata 目标地址，避免把服务变成 SSRF/open relay。
 - 提供状态查询接口。
 
 ### 明确不解决的问题
@@ -104,6 +105,8 @@ inventory_changed:sku_789:event_001
 面试时可以直接说：
 
 > 我不承诺 HTTP exactly once，因为那是假的。我承诺至少一次，并把幂等键作为跨系统协作合同。
+
+入站侧也使用 `idempotency_key` 做去重：同一个 key 重复提交时返回已有 notification，不再创建第二条任务。这样业务系统在 `POST /notifications` 超时后安全重试，不会因为客户端重试制造重复任务。
 
 ## 5. 失败处理策略
 
@@ -209,7 +212,7 @@ Content-Type: application/json
 GET /notifications/{id}
 ```
 
-返回当前状态和 attempts。
+返回当前状态和 attempts。状态查询里的敏感 header/body 字段会脱敏，例如 `Authorization`、`Cookie`、`token`、`password`、`secret`，避免排障接口泄露供应商凭证。
 
 ## 8. 本地运行
 

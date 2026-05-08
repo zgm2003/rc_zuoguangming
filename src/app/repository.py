@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -72,6 +73,11 @@ class NotificationRepository:
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
 
+        if idempotency_key is not None:
+            existing = self.get_notification_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                return existing
+
         now = _normalize_datetime(now or utc_now())
         item = Notification(
             id=str(uuid.uuid4()),
@@ -89,9 +95,27 @@ class NotificationRepository:
             updated_at=now,
         )
         self.session.add(item)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            if idempotency_key is not None:
+                existing = self.get_notification_by_idempotency_key(idempotency_key)
+                if existing is not None:
+                    return existing
+            raise
         self.session.refresh(item)
         return item
+
+    def get_notification_by_idempotency_key(self, idempotency_key: str) -> Notification | None:
+        stmt = (
+            select(Notification)
+            .where(Notification.idempotency_key == idempotency_key)
+            .order_by(Notification.created_at.asc(), Notification.id.asc())
+            .limit(1)
+            .options(selectinload(Notification.attempts))
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
 
     def get_notification(self, notification_id: str) -> Notification | None:
         stmt = (
@@ -192,6 +216,50 @@ class NotificationRepository:
         item.updated_at = now
         self.session.commit()
         return item.attempt_count
+
+    def finish_attempt(
+        self,
+        notification_id: str,
+        *,
+        attempt_no: int,
+        status_code: int | None,
+        error: str | None,
+        last_error: str | None,
+        duration_ms: int,
+        final_status: str,
+        next_attempt_at: datetime | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        now = _normalize_datetime(now or utc_now())
+        item = self._require(notification_id)
+        item.attempt_count = attempt_no
+        item.last_status_code = status_code
+        item.processing_started_at = None
+        item.updated_at = now
+        if final_status == STATUS_SUCCEEDED:
+            item.status = STATUS_SUCCEEDED
+            item.last_error = None
+        elif final_status == STATUS_RETRYING:
+            if next_attempt_at is None:
+                raise ValueError("next_attempt_at is required when scheduling a retry")
+            item.status = STATUS_RETRYING
+            item.next_attempt_at = _normalize_datetime(next_attempt_at)
+            item.last_error = last_error
+        elif final_status == STATUS_FAILED:
+            item.status = STATUS_FAILED
+            item.last_error = last_error
+        else:
+            raise ValueError(f"unsupported final_status: {final_status}")
+        attempt = NotificationAttempt(
+            notification_id=notification_id,
+            attempt_no=attempt_no,
+            status_code=status_code,
+            error=error,
+            duration_ms=duration_ms,
+            created_at=now,
+        )
+        self.session.add(attempt)
+        self.session.commit()
 
     def recover_stale_processing(self, *, stale_before: datetime, now: datetime | None = None) -> int:
         now = _normalize_datetime(now or utc_now())
