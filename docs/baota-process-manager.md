@@ -47,6 +47,8 @@ db ok
 
 说明数据库表初始化成功。
 
+如果历史数据里已经存在重复的 `idempotency_key`，初始化不会直接炸，但会跳过创建唯一索引并打 warning；这时先把重复数据清掉，再重跑初始化。
+
 ## 3. 进程一：notify-api
 
 宝塔进程管理器填写：
@@ -128,4 +130,3 @@ curl https://notify.zgm2003.cn/health
 ```json
 {"status":"ok"}
 ```
-
